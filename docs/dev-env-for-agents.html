@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Making your dev environment work for AI agents: a field guide</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bangers&family=Inter:wght@400;600;700&family=IBM+Plex+Mono:wght@400;500&family=Lalezar&family=IBM+Plex+Sans+Arabic:wght@400;600;700&display=swap">
+<style>
+:root { --ink:#18120e; --paper:#fff8ec; --red:#e62429; --yellow:#ffd400; --blue:#0072ce; }
+* { margin:0; box-sizing:border-box; }
+body { background-color:var(--paper);
+  background-image:radial-gradient(circle, rgb(24 18 14 / 0.07) 1px, transparent 1.4px);
+  background-size:12px 12px; color:var(--ink);
+  font-family:Inter,"IBM Plex Sans Arabic",system-ui,sans-serif; -webkit-font-smoothing:antialiased; }
+[dir="rtl"] * { letter-spacing:normal; }
+.md-body { max-width: 50rem; margin: 0 auto; padding: 2.5rem 1.25rem 4rem; color: var(--ink); line-height: 1.65; }
+.md-body > :first-child { margin-top: 0; }
+.md-body h1, .md-body h2, .md-body h3, .md-body h4 { font-family: Bangers, Lalezar, Impact, sans-serif; letter-spacing: 0.02em; line-height: 1.2; margin: 1.8rem 0 0.7rem; }
+.md-body h1 { font-size: clamp(2.2rem,6vw,3rem); text-shadow: 2px 2px 0 var(--red); }
+.md-body h2 { font-size: 1.8rem; border-bottom: 3px solid var(--ink); padding-bottom: 0.2rem; }
+.md-body h3 { font-size: 1.4rem; } .md-body h4 { font-size: 1.15rem; }
+.md-body p { margin: 0.85rem 0; }
+.md-body a { color: var(--blue); text-decoration: underline; text-underline-offset: 2px; }
+.md-body ul, .md-body ol { margin: 0.85rem 0; padding-inline-start: 1.7rem; }
+.md-body li { margin: 0.3rem 0; }
+.md-body code { font-family: "IBM Plex Mono", "IBM Plex Sans Arabic", monospace; font-size: 0.85em; background: rgb(24 18 14 / 0.08); border-radius: 4px; padding: 0.08rem 0.34rem; unicode-bidi: isolate; }
+.md-body pre { direction: ltr; text-align: left; background: var(--ink); border: 3px solid var(--ink); border-radius: 12px; box-shadow: 5px 5px 0 0 var(--red); padding: 1rem 1.1rem; overflow-x: auto; margin: 1.1rem 0; }
+.md-body pre code { background: none; padding: 0; font-size: 0.85rem; line-height: 1.55; }
+.md-body blockquote { border-inline-start: 6px solid var(--yellow); background: #fff7d6; margin: 1.1rem 0; padding: 0.6rem 1rem; border-radius: 8px; border-start-start-radius: 0; border-end-start-radius: 0; }
+.md-body blockquote > :first-child { margin-top: 0; } .md-body blockquote > :last-child { margin-bottom: 0; }
+.md-body table { border-collapse: collapse; margin: 1.1rem 0; width: 100%; display: block; overflow-x: auto; }
+.md-body th, .md-body td { border: 2px solid var(--ink); padding: 0.45rem 0.7rem; text-align: start; }
+.md-body th { background: var(--yellow); font-family: "IBM Plex Mono", "IBM Plex Sans Arabic", monospace; font-size: 0.9rem; }
+.md-body img { max-width: 100%; height: auto; border: 3px solid var(--ink); border-radius: 8px; }
+.md-body hr { border: none; border-top: 3px dashed rgb(24 18 14 / 0.3); margin: 1.8rem 0; }
+.md-body input[type="checkbox"] { width: 1rem; height: 1rem; vertical-align: middle; margin-inline-end: 0.3rem; }
+.md-body pre.mermaid { background: none; border: none; box-shadow: none; padding: 0; text-align: center; }
+.md-body .highlight table td { padding: 5px; }
+.md-body .highlight table pre { margin: 0; }
+.md-body .highlight, .md-body .highlight .w {
+  color: #c9d1d9;
+  background-color: #161b22;
+}
+.md-body .highlight .k, .md-body .highlight .kd, .md-body .highlight .kn, .md-body .highlight .kp, .md-body .highlight .kr, .md-body .highlight .kt, .md-body .highlight .kv {
+  color: #ff7b72;
+}
+.md-body .highlight .gr {
+  color: #f0f6fc;
+}
+.md-body .highlight .gd {
+  color: #ffdcd7;
+  background-color: #67060c;
+}
+.md-body .highlight .nb {
+  color: #ffa657;
+}
+.md-body .highlight .nc {
+  color: #ffa657;
+}
+.md-body .highlight .no {
+  color: #ffa657;
+}
+.md-body .highlight .nn {
+  color: #ffa657;
+}
+.md-body .highlight .sr {
+  color: #7ee787;
+}
+.md-body .highlight .na {
+  color: #7ee787;
+}
+.md-body .highlight .nt {
+  color: #7ee787;
+}
+.md-body .highlight .gi {
+  color: #aff5b4;
+  background-color: #033a16;
+}
+.md-body .highlight .ges {
+  font-weight: bold;
+  font-style: italic;
+}
+.md-body .highlight .kc {
+  color: #79c0ff;
+}
+.md-body .highlight .l, .md-body .highlight .ld, .md-body .highlight .m, .md-body .highlight .mb, .md-body .highlight .mf, .md-body .highlight .mh, .md-body .highlight .mi, .md-body .highlight .il, .md-body .highlight .mo, .md-body .highlight .mx {
+  color: #79c0ff;
+}
+.md-body .highlight .sb {
+  color: #79c0ff;
+}
+.md-body .highlight .bp {
+  color: #79c0ff;
+}
+.md-body .highlight .ne {
+  color: #79c0ff;
+}
+.md-body .highlight .nl {
+  color: #79c0ff;
+}
+.md-body .highlight .py {
+  color: #79c0ff;
+}
+.md-body .highlight .nv, .md-body .highlight .vc, .md-body .highlight .vg, .md-body .highlight .vi, .md-body .highlight .vm {
+  color: #79c0ff;
+}
+.md-body .highlight .o, .md-body .highlight .ow {
+  color: #79c0ff;
+}
+.md-body .highlight .gh {
+  color: #1f6feb;
+  font-weight: bold;
+}
+.md-body .highlight .gu {
+  color: #1f6feb;
+  font-weight: bold;
+}
+.md-body .highlight .s, .md-body .highlight .sa, .md-body .highlight .sc, .md-body .highlight .dl, .md-body .highlight .sd, .md-body .highlight .s2, .md-body .highlight .se, .md-body .highlight .sh, .md-body .highlight .sx, .md-body .highlight .s1, .md-body .highlight .ss {
+  color: #a5d6ff;
+}
+.md-body .highlight .nd {
+  color: #d2a8ff;
+}
+.md-body .highlight .nf, .md-body .highlight .fm {
+  color: #d2a8ff;
+}
+.md-body .highlight .err {
+  color: #f0f6fc;
+  background-color: #8e1519;
+}
+.md-body .highlight .c, .md-body .highlight .ch, .md-body .highlight .cd, .md-body .highlight .cm, .md-body .highlight .cp, .md-body .highlight .cpf, .md-body .highlight .c1, .md-body .highlight .cs {
+  color: #8b949e;
+}
+.md-body .highlight .gl {
+  color: #8b949e;
+}
+.md-body .highlight .gt {
+  color: #8b949e;
+}
+.md-body .highlight .ni {
+  color: #c9d1d9;
+}
+.md-body .highlight .si {
+  color: #c9d1d9;
+}
+.md-body .highlight .ge {
+  color: #c9d1d9;
+  font-style: italic;
+}
+.md-body .highlight .gs {
+  color: #c9d1d9;
+  font-weight: bold;
+}
+.md-body pre code.highlight { background: transparent; padding: 0; }
+</style>
+</head>
+<body>
+<main class="md-body" dir="auto">
+<h1><a href="#making-your-dev-environment-work-for-ai-agents-a-field-guide" aria-hidden="true" class="anchor" id="making-your-dev-environment-work-for-ai-agents-a-field-guide"></a>Making your dev environment work for AI agents: a field guide</h1>
+<p><em>The repo layout, the commands and the rules that let five or more coding agents share one laptop's stack, using prior art from GitHub and Shopify.</em></p>
+<p>There are two engineers at my startup: me and the founder. On a normal day, five or more AI coding agents work alongside us in their own checkouts. That makes agents the main users of our dev environment, and they have no patience and no memory. A rough edge a human works around without noticing is one an agent fails on every time.</p>
+<p>This guide covers what I set up so they can run the whole stack on their own. None of the ideas are new. Most come from patterns that big engineering orgs have used for years. What's new is that agents make them mandatory.</p>
+<h2><a href="#prior-art-worth-copying" aria-hidden="true" class="anchor" id="prior-art-worth-copying"></a>Prior art worth copying</h2>
+<p><strong>GitHub's "Scripts to Rule Them All" (2015).</strong> Every repo gets the same small set of entry points: <code>script/bootstrap</code>, <code>script/setup</code>, <code>script/update</code>, <code>script/server</code>, <code>script/test</code>. You don't need to know a repo's language or tooling to run it, only the verb. For an agent, this matters more than anything else on this list: one obvious way to do each job.</p>
+<p><strong>Shopify's internal <code>dev</code> tool.</strong> It extends the same idea across many repos. One CLI on everyone's machine, with <code>dev up</code> reading each project's config and installing and starting whatever that project needs. The engineer learns one tool, not one setup per repo.</p>
+<p><strong>The workspace (meta) repo.</strong> In a polyrepo org, one repo exists only to hold the others together. You clone it first, and it clones and runs the rest. It's the cheap alternative to a monorepo: each service keeps its own repo, history and CI, and one place still knows how they fit together.</p>
+<p>We use all three: a workspace repo that provides one CLI, <code>dev</code>, with Scripts-to-Rule-Them-All verbs for the whole stack.</p>
+<h2><a href="#the-layout-a-dev-repo-and-an-infra-repo" aria-hidden="true" class="anchor" id="the-layout-a-dev-repo-and-an-infra-repo"></a>The layout: a dev repo and an infra repo</h2>
+<p>The product spans several repos (an API, the frontends, a data pipeline). Two more repos hold no product code:</p>
+<ul>
+<li><strong>The dev repo</strong> answers "how do I run this on a laptop?" It's the workspace repo, and you clone it first.</li>
+<li><strong>The infra repo</strong> answers "how does this run on servers?" It holds the production and staging compose files, host provisioning, image version pins, monitoring config and runbooks.</li>
+</ul>
+<p>Keeping them apart means local tooling never ships to production, and deploy config never ends up on every laptop. Each repo has its own instruction file, so an agent working on deploys reads the infra runbooks, not the local dev rules.</p>
+<p>The dev repo looks like this:</p>
+<pre><code class="highlight">workspace/
+  dev/                      ← clone this first
+    bootstrap.sh            ← installs everything, safe to re-run
+    bin/dev                 ← the CLI
+    repos.txt               ← every repo: name, branch, install command
+    mise.toml               ← pinned Python, Node, pnpm, Poetry
+    compose.stores.yaml     ← Postgres, Mongo, Elasticsearch, Qdrant, auth emulator
+    process-compose.yaml    ← service dependency graph + health checks
+    CLAUDE.md               ← the agent rules
+  api/  frontend/  data-pipeline/  …   ← cloned next to it by bootstrap
+</code></pre>
+<p>Setup on a new machine is two commands: <code>git clone</code> the dev repo, then run <code>./dev/bootstrap.sh</code>. It installs system tools, pins the toolchain with mise, clones every repo in <code>repos.txt</code> next to itself, installs each repo's dependencies, and puts <code>dev</code> on your PATH.</p>
+<h2><a href="#the-verbs" aria-hidden="true" class="anchor" id="the-verbs"></a>The verbs</h2>
+<pre><code class="highlight">dev up &lt;services&gt;    start these and everything they depend on; block until healthy
+dev down             stop everything, keep data
+dev status           what's running, where
+dev logs &lt;svc&gt; -n N  recent logs
+dev doctor           what's missing and what breaks without it
+dev reset --yes      wipe local data and reseed
+dev e2e &lt;suite&gt;      run an e2e suite on its own test stack
+dev update           fast-forward every repo
+dev pipeline &lt;cmd&gt;   run a data-pipeline job against this copy's stores
+</code></pre>
+<p>These are the same verbs as Scripts to Rule Them All, plus the ones agents kept getting stuck on. Each one has a single job and works the same in every checkout.</p>
+<h2><a href="#the-rules" aria-hidden="true" class="anchor" id="the-rules"></a>The rules</h2>
+<h3><a href="#1-up-blocks-until-healthy-and-failures-bring-their-logs" aria-hidden="true" class="anchor" id="1-up-blocks-until-healthy-and-failures-bring-their-logs"></a>1. <code>up</code> blocks until healthy, and failures bring their logs</h3>
+<p>A start command that returns as soon as processes launch leaves "is it ready yet?" to the caller. Humans watch logs. Agents run <code>sleep 30</code> and hope.</p>
+<p><code>dev up web</code> starts web plus its dependencies (stores, seed data, API) and returns only when every one passes its health check. If one fails, it exits non-zero and prints that service's last 50 log lines. The agent learns why something failed, not just that it did.</p>
+<p><strong>How:</strong> don't write health checks yourself. process-compose already tracks each process's readiness and reports it as JSON. The wait loop asks every two seconds, and it's about 20 lines of bash and <code>jq</code>.</p>
+<h3><a href="#2-everything-that-reports-state-takes---json" aria-hidden="true" class="anchor" id="2-everything-that-reports-state-takes---json"></a>2. Everything that reports state takes <code>--json</code></h3>
+<p>Agents scrape human-formatted output badly. <code>dev up</code>, <code>dev status</code> and <code>dev doctor</code> all take <code>--json</code>:</p>
+<pre><code class="highlight"><span class="p">{</span><span class="w">
+  </span><span class="nl">"slot"</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"mode"</span><span class="p">:</span><span class="w"> </span><span class="s2">"local"</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"services"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w">
+    </span><span class="p">{</span><span class="w"> </span><span class="nl">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"web"</span><span class="p">,</span><span class="w"> </span><span class="nl">"status"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Running"</span><span class="p">,</span><span class="w"> </span><span class="nl">"ready"</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span><span class="w"> </span><span class="nl">"url"</span><span class="p">:</span><span class="w"> </span><span class="s2">"http://localhost:3010"</span><span class="w"> </span><span class="p">}</span><span class="w">
+  </span><span class="p">]</span><span class="w">
+</span><span class="p">}</span><span class="w">
+</span></code></pre>
+<p>In local mode it also includes a test login, so an agent can sign in to the app it just started. <strong>How:</strong> build the human output from the JSON, never the other way round, so the two can't drift apart.</p>
+<h3><a href="#3-isolate-every-copy-ports-data-and-the-lock" aria-hidden="true" class="anchor" id="3-isolate-every-copy-ports-data-and-the-lock"></a>3. Isolate every copy: ports, data and the lock</h3>
+<p>Agents that need a running app each get their own copy of the stack, up to three per machine. Agents that only edit code or run unit tests don't need one. When all three are taken, <code>dev up</code> names the holders and the next agent waits for a <code>dev down</code>.</p>
+<p><strong>Ports:</strong> each workspace claims a slot, and every port shifts by ten times the slot number, so web runs on 3000, 3010 or 3020. Every command prints its URLs, and the agent rules say <strong>read URLs from the output, never hardcode them</strong>. Otherwise an agent tests localhost:3000, hits another agent's copy, and reports a fix that isn't one.</p>
+<p><strong>Data:</strong> each slot has its own Docker volumes, so <code>dev reset --yes</code> wipes only that agent's data.</p>
+<p><strong>Locking:</strong> agents start at the same moment far more often than humans do. Instead of a lock file or a daemon, use <code>mkdir</code>:</p>
+<pre><code class="highlight"><span class="k">for </span>n <span class="k">in </span>0 1 2<span class="p">;</span> <span class="k">do
+  </span><span class="nb">mkdir</span> <span class="s2">"</span><span class="nv">$SLOTS</span><span class="s2">/</span><span class="nv">$n</span><span class="s2">"</span> 2&gt;/dev/null <span class="o">&amp;&amp;</span> <span class="o">{</span> <span class="nb">echo</span> <span class="s2">"</span><span class="nv">$n</span><span class="s2">"</span><span class="p">;</span> <span class="k">return</span><span class="p">;</span> <span class="o">}</span>
+<span class="k">done</span>
+</code></pre>
+<p>Creating a directory is atomic: if two processes try at once, exactly one succeeds. <code>dev down</code> removes it, and a slot whose checkout has been deleted is reclaimed on the next claim.</p>
+<h3><a href="#4-never-wait-for-a-human-who-isnt-there" aria-hidden="true" class="anchor" id="4-never-wait-for-a-human-who-isnt-there"></a>4. Never wait for a human who isn't there</h3>
+<p>A "y/N" prompt hangs an agent until something times out. So does a login that opens a browser tab nobody will click.</p>
+<ul>
+<li>Destructive commands take a flag: <code>dev reset --yes</code>. Without it, the command refuses and says how to re-run it.</li>
+<li>Interactive steps only happen when a person is at the keyboard:</li>
+</ul>
+<pre><code class="highlight"><span class="o">[</span> <span class="s2">"</span><span class="nv">$JSON</span><span class="s2">"</span> <span class="o">!=</span> 1 <span class="o">]</span> <span class="o">&amp;&amp;</span> <span class="o">[</span> <span class="nt">-t</span> 0 <span class="o">]</span> <span class="o">||</span>
+  die <span class="s2">"not logged in: run the login command in a terminal first"</span>
+</code></pre>
+<p><code>[ -t 0 ]</code> checks whether a real terminal is attached. If not, the agent gets an error it can pass on to you.</p>
+<h3><a href="#5-doctor-checks-bootstrap-installs-and-nothing-else-installs-anything" aria-hidden="true" class="anchor" id="5-doctor-checks-bootstrap-installs-and-nothing-else-installs-anything"></a>5. <code>doctor</code> checks, <code>bootstrap</code> installs, and nothing else installs anything</h3>
+<p><code>dev</code> never installs anything. If something's missing, <code>dev up</code> stops and lists exactly what (a tool, a repo, a dependency), and <code>dev doctor --json</code> checks everything, including which secrets are missing and which features break without them. <code>bootstrap.sh</code> is the only thing that installs, and it's safe to re-run.</p>
+<p>This split matters for agents. Something that silently installs things halfway through a run is a side effect an agent can't reason about, and a clear "missing: poetry, run bootstrap" is something it can act on.</p>
+<h3><a href="#6-updates-that-refuse-to-make-a-mess" aria-hidden="true" class="anchor" id="6-updates-that-refuse-to-make-a-mess"></a>6. Updates that refuse to make a mess</h3>
+<p><code>dev update</code> fast-forwards each repo on its tracked branch, but only if the repo has no uncommitted changes and is on that branch. Everything else is reported and skipped. It reinstalls dependencies when lockfiles change. An agent can run it without ever needing to resolve a merge it didn't create.</p>
+<h3><a href="#7-write-the-rules-where-agents-read-them" aria-hidden="true" class="anchor" id="7-write-the-rules-where-agents-read-them"></a>7. Write the rules where agents read them</h3>
+<p>Agents read a project instruction file before they start: <code>CLAUDE.md</code> for Claude Code, <code>AGENTS.md</code> for others. Ours is in the dev repo and is 26 lines. The core of it:</p>
+<ul>
+<li>Start services with <code>dev up &lt;services&gt; --json</code> and read URLs from the output.</li>
+<li><code>dev up</code> blocks until healthy. Don't poll or sleep around it.</li>
+<li>Run <code>dev down</code> when you're done, to free the slot.</li>
+<li>Destructive commands need <code>--yes</code>.</li>
+<li>Before saying something can't run, check <code>dev doctor --json</code>.</li>
+</ul>
+<p>The infra repo has its own file and runbooks. If a rule matters, it fits on one line.</p>
+<h2><a href="#what-its-built-from" aria-hidden="true" class="anchor" id="what-its-built-from"></a>What it's built from</h2>
+<ul>
+<li><strong>mise</strong>: tool versions</li>
+<li><strong>docker compose</strong>: the data stores</li>
+<li><strong>process-compose</strong>: dependency graph and health checks</li>
+<li><strong>bash</strong>: the <code>dev</code> CLI, just under 500 lines, compatible with the old bash 3.2 that macOS still ships</li>
+</ul>
+<p>The CLI does no process management, no orchestration and no health checking itself. It sets environment variables, calls those tools and reads their answers. No platform team required, which is good, because we don't have one.</p>
+<h2><a href="#checklist" aria-hidden="true" class="anchor" id="checklist"></a>Checklist</h2>
+<p>Run this against your own setup:</p>
+<ul>
+<li><input type="checkbox" disabled=""> A fresh machine goes from clone to running app with one script, and the script is safe to re-run.</li>
+<li><input type="checkbox" disabled=""> Every repo, or the workspace repo, has the same verbs: bootstrap, up, down, status, logs, test, update.</li>
+<li><input type="checkbox" disabled=""> <code>up</code> blocks until healthy and exits non-zero with the failing service's logs.</li>
+<li><input type="checkbox" disabled=""> Every command that reports state has a JSON mode.</li>
+<li><input type="checkbox" disabled=""> No command hardcodes a port, and every command prints its URLs.</li>
+<li><input type="checkbox" disabled=""> Two copies of the stack can run at once without sharing ports or data.</li>
+<li><input type="checkbox" disabled=""> No command prompts. Destructive ones need a flag.</li>
+<li><input type="checkbox" disabled=""> Nothing opens a browser or waits for input without a terminal attached.</li>
+<li><input type="checkbox" disabled=""> A <code>doctor</code> command says what's missing, and nothing installs as a side effect.</li>
+<li><input type="checkbox" disabled=""> The agent rules are in the repo, short enough to read in a minute.</li>
+</ul>
+<p>At previous companies I saw slow onboarding, "works on my machine" bugs and silent failures. Every item on this list fixes one of those for humans too. Agents just make you fix them now.</p>
+<p>The quickest test: <strong>give a new hire only your README and a terminal, and no one to ask.</strong> That's what an agent gets.</p>
+
+</main>
+
+</body>
+</html>

@@ -1,0 +1,5 @@
+# Repos cloned next to this one by bootstrap.sh, from github.com/$GH_ORG (dev.conf).
+# name            branch   install command (run inside the repo; "-" = none)
+workspace-dev     main     -
+# acme-api        main     poetry install
+# acme-web        main     pnpm install --frozen-lockfile

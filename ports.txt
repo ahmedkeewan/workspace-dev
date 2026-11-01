@@ -1,0 +1,7 @@
+# name      slot-0 port   (slot n uses port + 10 × n; exported as PORT_<NAME>, e.g. PORT_API)
+# Every name that isn't in CONTAINERS (dev.conf) is a service you can `dev up`.
+# Keep store ports below 32768: higher ones sit in the OS ephemeral range, and a
+# random outgoing connection (Docker's port forwarding, for one) can grab them.
+api         8100
+web         4100
+postgres    25432

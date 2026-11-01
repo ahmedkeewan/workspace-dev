@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Shared pre-commit hook: bootstrap.sh points every repo's core.hooksPath here.
+# Keep it fast and staged-files-only; typecheck, tests and builds belong in CI.
+# Add your linters below (each repo's own, if installed).
+set -uo pipefail
+
+DEV_DIR=$(cd "$(dirname "$0")/.." && pwd)
+command -v mise >/dev/null && eval "$(mise env -C "$DEV_DIR" -s bash 2>/dev/null)"
+
+failed=0
+if command -v gitleaks >/dev/null; then
+  gitleaks git --pre-commit --staged --redact --no-banner --log-level warn ||
+    { echo "pre-commit: gitleaks found a secret in the staged changes; remove it before committing" >&2; failed=1; }
+else
+  echo "pre-commit: gitleaks not installed, check skipped (run bootstrap.sh)" >&2
+fi
+exit $failed

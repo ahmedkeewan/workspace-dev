@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Runs one service for process-compose. Env (PORT_*, SLOT, COMPOSE_PROJECT, …) comes
+# from bin/dev. This is the file you edit most: one case per service, ending in `exec`
+# so process-compose tracks the real process.
+set -euo pipefail
+svc=${1:?service}
+
+compose() { docker compose -p "$COMPOSE_PROJECT" -f "$DEV_DIR/compose.stores.yaml" "$@"; }
+
+case "$svc" in
+  stores)
+    compose up -d --wait
+    echo "stores ready" ;;
+
+  logs)
+    # Follow one store container's output (process-compose adds the name prefix).
+    exec docker compose -p "$COMPOSE_PROJECT" -f "$DEV_DIR/compose.stores.yaml" \
+      logs -f --no-log-prefix --tail 100 "${2:?container}" ;;
+
+  seed)
+    # Seed only an empty slot. Replace with your project's seed script, e.g.
+    #   cd "$DEV_ROOT/acme-api" && exec poetry run python scripts/seed.py
+    psql() { compose exec -T postgres psql -U dev -d app -qtA "$@"; }
+    if [ "$(psql -c "select to_regclass('public.items') is not null")" = t ]; then
+      echo "already seeded (dev reset --yes to reseed)"; exit 0
+    fi
+    psql <"$DEV_DIR/seed/seed.sql"
+    echo "seeded" ;;
+
+  # Example services, so `dev up web` works straight after cloning. Replace them
+  # with your repos, e.g.
+  #   api) cd "$DEV_ROOT/acme-api"; export DATABASE_URL=postgres://dev:dev@127.0.0.1:$PORT_POSTGRES/app
+  #        exec poetry run uvicorn main:app --port "$PORT_API" ;;
+  #   web) cd "$DEV_ROOT/acme-web"; export VITE_API_URL=http://127.0.0.1:$PORT_API
+  #        exec pnpm exec vite --host 127.0.0.1 --port "$PORT_WEB" --strictPort ;;
+  api)
+    exec python3 -m http.server "$PORT_API" --bind 127.0.0.1 -d "$DEV_DIR/examples/api" ;;
+  web)
+    exec python3 -m http.server "$PORT_WEB" --bind 127.0.0.1 -d "$DEV_DIR/examples/web" ;;
+
+  *) echo "unknown service: $svc" >&2; exit 2 ;;
+esac

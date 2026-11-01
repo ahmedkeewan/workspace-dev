@@ -1,0 +1,3 @@
+# dev.conf and sourced scripts set variables shellcheck sees as unused.
+external-sources=true
+disable=SC1090,SC1091,SC2034

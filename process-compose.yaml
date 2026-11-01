@@ -1,0 +1,36 @@
+# Service graph. All logic lives in libexec/run; ports are exported by bin/dev.
+# `dev up web` starts web plus everything it depends on.
+version: "0.5"
+log_level: info
+
+# Container log followers: make the Docker stores show up in `dev attach` and
+# `dev logs` next to the services. One entry per name in CONTAINERS (dev.conf).
+x-container-logs: &container-logs
+  namespace: containers
+  depends_on:
+    stores: { condition: process_completed_successfully }
+  availability: { restart: on_failure, backoff_seconds: 2 }
+
+processes:
+  stores:
+    command: libexec/run stores
+  seed:
+    command: libexec/run seed
+    depends_on:
+      stores: { condition: process_completed_successfully }
+
+  api:
+    command: libexec/run api
+    depends_on:
+      seed: { condition: process_completed_successfully }
+    readiness_probe: { http_get: { host: 127.0.0.1, port: ${PORT_API}, path: /health }, period_seconds: 2, failure_threshold: 120 }
+    availability: { restart: on_failure, max_restarts: 3 }
+
+  web:
+    command: libexec/run web
+    depends_on:
+      api: { condition: process_healthy }
+    readiness_probe: { http_get: { host: 127.0.0.1, port: ${PORT_WEB}, path: / }, period_seconds: 2, failure_threshold: 120 }
+    availability: { restart: on_failure, max_restarts: 3 }
+
+  postgres: { <<: *container-logs, command: libexec/run logs postgres }

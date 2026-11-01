@@ -1,0 +1,15 @@
+# Local stores, one set per slot (compose project $NAME-dev-<slot>). Data lives in
+# named volumes, so it survives restarts; `dev reset --yes` wipes it. Host ports
+# come from ports.txt via bin/dev. Give every store a healthcheck: `up --wait` uses it.
+services:
+  postgres:
+    image: postgres:17
+    environment: { POSTGRES_USER: dev, POSTGRES_PASSWORD: dev, POSTGRES_DB: app }
+    ports: ["127.0.0.1:${PORT_POSTGRES}:5432"]
+    volumes: [pg:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "dev", "-d", "app"]
+      interval: 2s
+      retries: 30
+
+volumes: { pg: {} }

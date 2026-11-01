@@ -1,0 +1,322 @@
+#!/usr/bin/env bash
+# Workspace CLI. Run `dev help`. bash 3.2-compatible (macOS ships it).
+set -euo pipefail
+
+DEV_DIR=$(cd "$(dirname "$(realpath "${BASH_SOURCE[0]}")")/.." && pwd)
+DEV_ROOT=$(dirname "$DEV_DIR")  # the workspace: this repo + its sibling repos
+# shellcheck source=../dev.conf
+source "$DEV_DIR/dev.conf"
+HOME_DIR=${DEV_HOME:-$HOME/.$NAME-dev}
+SECRETS_FILE=$HOME_DIR/secrets.env
+SLOTS_DIR=$HOME_DIR/slots
+export DEV_DIR DEV_ROOT SECRETS_FILE
+
+# Pinned toolchain (mise.toml) for this process and everything it spawns.
+command -v mise >/dev/null && eval "$(mise env -C "$DEV_DIR" -s bash 2>/dev/null)"
+
+die() { echo "$CLI: $*" >&2; exit 1; }
+say() { [ "${JSON:-0}" = 1 ] && echo "$*" >&2 || echo "$*"; }
+ports() { grep -v '^\s*#' "$DEV_DIR/ports.txt" | grep -v '^\s*$'; }
+repos() { grep -v '^\s*#' "$DEV_DIR/repos.txt" | grep -v '^\s*$'; }
+port_var() { echo "PORT_$(echo "$1" | tr 'a-z-' 'A-Z_')"; }
+is_container() { [[ " $CONTAINERS " == *" $1 "* ]]; }
+app_services() { local n _; ports | while read -r n _; do is_container "$n" || echo "$n"; done; }
+APP_SERVICES=$(app_services | tr '\n' ' '); APP_SERVICES=${APP_SERVICES% }
+
+usage() {
+  cat <<EOF
+Usage: $CLI <command> [args]
+
+  up <svc...> [--json]  start services + their deps, wait until healthy, detach
+  down                  stop this workspace's stack (data kept), release its slot
+  status [--json]       slot, services, URLs
+  logs [svc[,svc...]] [-f] [-n N]
+                        logs; no svc = every service + container, "stores" = containers
+  attach                open the process-compose TUI
+  seed                  seed the local stores if empty
+  reset --yes           wipe this slot's local data and reseed
+  update                fast-forward clean repos on their tracked branch
+  doctor [--json]       check tools, docker, repos, secrets, slots
+
+Services: $APP_SERVICES
+EOF
+}
+
+# ---------- slots ----------
+
+slot_of_workspace() {
+  local d
+  for d in "$SLOTS_DIR"/*/; do
+    [ -f "$d/path" ] && [ "$(cat "$d/path")" = "$DEV_ROOT" ] && { basename "$d"; return; }
+  done
+  return 0
+}
+
+slot_claim() {
+  local s n d
+  s=$(slot_of_workspace); [ -n "$s" ] && { echo "$s"; return; }
+  mkdir -p "$SLOTS_DIR"
+  for n in $(seq 0 $((MAX_SLOTS - 1))); do
+    d=$SLOTS_DIR/$n
+    # Stale: the workspace that held it no longer exists.
+    [ -d "$d" ] && [ ! -d "$(cat "$d/path" 2>/dev/null)" ] && rm -rf "$d"
+    # mkdir is atomic, so two workspaces starting at once never get the same slot.
+    if mkdir "$d" 2>/dev/null; then echo "$DEV_ROOT" >"$d/path"; echo "$n"; return; fi
+  done
+  slot_holders >&2
+  die "all $MAX_SLOTS slots are in use (run \`$CLI down\` in one of the workspaces above)"
+}
+
+slot_holders() {
+  local d
+  for d in "$SLOTS_DIR"/*/; do [ -f "$d/path" ] && echo "slot $(basename "$d"): $(cat "$d/path")"; done
+  return 0
+}
+
+# ---------- env ----------
+
+# Process env wins over the secrets file (CI / agents can pass values directly).
+secret() { [ -n "${!1:-}" ] && { echo "${!1}"; return; }; ( set +u; [ -f "$SECRETS_FILE" ] && . "$SECRETS_FILE"; echo "${!1:-}" ); }
+
+set_slot_env() {
+  local o=$(($1 * 10)) n p
+  export SLOT=$1 COMPOSE_PROJECT=$NAME-dev-$1 STATE_DIR=$HOME_DIR/state/$1
+  while read -r n p; do export "$(port_var "$n")=$((p + o))"; done < <(ports)
+  PC_PORT=$((PC_BASE_PORT + o))
+  mkdir -p "$STATE_DIR"
+}
+
+load_running() {
+  local s; s=$(slot_of_workspace)
+  [ -n "$s" ] || die "no stack for this workspace ($CLI up <svc> first)"
+  set_slot_env "$s"
+}
+
+url_of() { local v; v=$(port_var "$1"); echo "http://localhost:${!v}"; }
+
+# ---------- process-compose ----------
+
+pc() { process-compose -p "$PC_PORT" "$@"; }
+pc_running() { pc project state >/dev/null 2>&1; }
+compose() { docker compose -p "$COMPOSE_PROJECT" -f "$DEV_DIR/compose.stores.yaml" "$@"; }
+
+status_json() {
+  local procs urls="{}" s
+  procs=$(pc process list -o json 2>/dev/null || echo '[]')
+  for s in $APP_SERVICES; do urls=$(jq --arg k "$s" --arg v "$(url_of "$s")" '. + {($k): $v}' <<<"$urls"); done
+  jq -n --argjson procs "$procs" --argjson urls "$urls" --arg slot "$SLOT" --arg ws "$DEV_ROOT" '{
+    slot: ($slot|tonumber), workspace: $ws,
+    services: [ $procs[] | select(.status != "Disabled")
+      | {name, status, ready: (.is_ready == "Ready"), url: ($urls[.name] // null)} ]
+  }'
+}
+
+print_status() {
+  local j; j=$(status_json)
+  if [ "${JSON:-0}" = 1 ]; then echo "$j"; return; fi
+  jq -r '"slot \(.slot) · \(.workspace)",
+    (.services[] | "  \(.name | . + " " * (14 - length)) \(.status | . + " " * (10 - length)) \(.url // "")")' <<<"$j"
+}
+
+# Wait until every enabled process is Ready (probe) / Running / Completed(0).
+wait_ready() {
+  local deadline=$((SECONDS + ${DEV_UP_TIMEOUT:-900})) procs failed pending
+  while :; do
+    procs=$(pc process list -o json 2>/dev/null) || { echo "$CLI: process-compose exited unexpectedly" >&2; return 1; }
+    failed=$(jq -r '.[] | select(.status != "Disabled")
+      | select((.status == "Completed" and .exit_code != 0) or .status == "Error" or .status == "Skipped") | .name' <<<"$procs" | head -1)
+    if [ -n "$failed" ]; then
+      echo "$CLI: $failed failed. Last log lines:" >&2
+      pc process logs "$failed" -n 50 >&2 2>/dev/null || true
+      return 1
+    fi
+    pending=$(jq -r '[.[] | select(.status != "Disabled")
+      | select(if .has_ready_probe then .is_ready != "Ready"
+               else (.status != "Running" and .status != "Completed") end) | .name] | join(" ")' <<<"$procs")
+    [ -z "$pending" ] && return 0
+    [ $SECONDS -ge $deadline ] && { echo "$CLI: timed out waiting for: $pending" >&2; return 1; }
+    sleep 2
+  done
+}
+
+# One line per missing tool / repo. Shared by `dev doctor` and `dev up`.
+setup_problems() {
+  local t name _
+  for t in process-compose jq; do command -v $t >/dev/null || echo "tool $t"; done
+  while read -r name _; do [ -d "$DEV_ROOT/$name" ] || echo "repo $name (not cloned)"; done < <(repos)
+  # Add per-service dependency checks here (e.g. node_modules, .venv) as your stack needs them.
+}
+
+# Silent unless something is missing; then name it and stop before anything starts.
+preflight() {
+  local problems; problems=$(setup_problems)
+  [ -z "$problems" ] && return 0
+  echo "$CLI: setup is incomplete (\`$CLI doctor\` runs the full check):" >&2
+  sed 's/^/  - missing /' <<<"$problems" >&2
+  die "run $DEV_DIR/bootstrap.sh (safe to re-run), then try again"
+}
+
+# ---------- commands ----------
+
+cmd_up() {
+  local svcs=() a
+  for a in "$@"; do
+    case "$a" in
+      --json) JSON=1 ;;
+      -*) die "unknown flag $a" ;;
+      *) [[ " $APP_SERVICES " == *" $a "* ]] || die "unknown service '$a' (one of: $APP_SERVICES)"; svcs+=("$a") ;;
+    esac
+  done
+  [ ${#svcs[@]} -gt 0 ] || die "which services? e.g. \`$CLI up web\` (one of: $APP_SERVICES)"
+
+  preflight  # before claiming a slot, so failures leave none behind
+  [ -z "$CONTAINERS" ] || docker info >/dev/null 2>&1 || die "docker is not running (\`colima start\`, or open your Docker app)"
+  local slot; slot=$(slot_claim) || exit 1
+  set_slot_env "$slot"
+
+  cd "$DEV_DIR"
+  if pc_running; then
+    # process-compose refuses to start a running process, so start only the ones
+    # this stack hasn't enabled yet; wait_ready below judges the rest.
+    local enabled; enabled=$(pc process list -o json | jq -r '.[] | select(.status != "Disabled") | .name')
+    for a in "${svcs[@]}"; do grep -qx "$a" <<<"$enabled" || pc process start "$a" >/dev/null; done
+  else
+    say "slot $SLOT · starting ${svcs[*]} (the first run pulls images and seeds; can take a few minutes)"
+    # shellcheck disable=SC2086
+    pc up -D --keep-project --ordered-shutdown -f process-compose.yaml "${svcs[@]}" $CONTAINERS >/dev/null 2>&1 ||
+      die "process-compose failed to start (port $PC_PORT busy? change PC_BASE_PORT in dev.conf)"
+  fi
+  wait_ready || die "startup failed — \`$CLI logs <svc>\` for details, \`$CLI down\` to stop"
+  print_status
+}
+
+cmd_down() {
+  local s; s=$(slot_of_workspace)
+  [ -n "$s" ] || { echo "nothing running for this workspace"; return; }
+  set_slot_env "$s"
+  pc_running && pc down >/dev/null 2>&1 || true
+  [ -n "$CONTAINERS" ] && docker info >/dev/null 2>&1 && compose stop >/dev/null 2>&1 || true
+  rm -rf "${SLOTS_DIR:?}/$s"
+  echo "slot $s stopped and released (data kept; \`$CLI reset --yes\` wipes it)"
+}
+
+cmd_status() {
+  [ "${1:-}" = --json ] && JSON=1
+  local s; s=$(slot_of_workspace)
+  if [ -z "$s" ]; then
+    [ "${JSON:-0}" = 1 ] && echo '{"slot":null,"services":[]}' || echo "nothing running for this workspace"
+    return
+  fi
+  load_running
+  print_status
+}
+
+cmd_logs() {
+  load_running
+  local svc=""
+  case "${1:-}" in -*|"") ;; *) svc=$1; shift ;; esac
+  case "$svc" in
+    "") svc=$(pc process list -o json | jq -r '[.[] | select(.status != "Disabled") | .name] | join(",")') ;;
+    stores) svc=${CONTAINERS// /,} ;;
+  esac
+  # process-compose interleaves several processes only when following; for a
+  # history dump it returns just one, so print each process's tail in turn.
+  if [[ $svc == *,* && " $* " != *" -f "* && " $* " != *" --follow "* ]]; then
+    local p
+    for p in ${svc//,/ }; do echo "── $p"; pc process logs "$p" "$@" 2>/dev/null; done
+  else
+    pc process logs "$svc" "$@"
+  fi
+}
+
+cmd_reset() {
+  [ "${1:-}" = --yes ] || die "wipes this slot's local data; re-run as \`$CLI reset --yes\`"
+  load_running
+  compose down -v
+  cd "$DEV_DIR" && libexec/run stores && libexec/run seed
+  # The log followers exited with their containers; reattach them to the new ones.
+  local c; for c in $CONTAINERS; do pc process restart "$c" >/dev/null 2>&1 || true; done
+  echo "slot $SLOT reset and reseeded (restart services that cache data: \`$CLI down && $CLI up …\`)"
+}
+
+cmd_seed() { load_running; cd "$DEV_DIR" && libexec/run seed; }
+
+cmd_update() {
+  local name branch rest dir cur before
+  while read -r name branch rest; do
+    dir=$DEV_ROOT/$name
+    [ -d "$dir/.git" ] || { echo "$name: not cloned (run bootstrap.sh)"; continue; }
+    cur=$(git -C "$dir" branch --show-current)
+    if [ "$cur" != "$branch" ]; then echo "$name: on '$cur', not '$branch' — skipped"; continue; fi
+    # Tracked changes only: untracked files (build dirs etc.) don't block a
+    # fast-forward, and git refuses on its own if one would be overwritten.
+    if [ -n "$(git -C "$dir" status --porcelain --untracked-files=no)" ]; then echo "$name: uncommitted changes — skipped"; continue; fi
+    before=$(git -C "$dir" rev-parse HEAD)
+    if git -C "$dir" pull -q --ff-only origin "$branch" 2>/dev/null; then
+      [ "$before" = "$(git -C "$dir" rev-parse HEAD)" ] && { echo "$name: up to date"; continue; }
+      echo "$name: updated"
+      git -C "$dir" diff --quiet "$before" HEAD -- '*.lock' '*-lock.yaml' '*-lock.json' ||
+        { echo "$name: lockfile changed, reinstalling"; "$DEV_DIR/bootstrap.sh" --install-only "$name"; }
+    else
+      echo "$name: can't fast-forward (diverged?) — skipped"
+    fi
+  done < <(repos)
+}
+
+cmd_doctor() {
+  [ "${1:-}" = --json ] && JSON=1
+  local checks="[]"
+  add() { checks=$(jq --arg n "$1" --arg s "$2" --arg d "$3" '. + [{name:$n, status:$s, detail:$d}]' <<<"$checks"); }
+
+  local t
+  for t in mise git gh jq docker process-compose gitleaks; do
+    if command -v "$t" >/dev/null; then
+      add "tool:$t" ok "$( { [ "$t" = process-compose ] && "$t" version --short || "$t" --version; } 2>/dev/null | head -1)"
+    else add "tool:$t" missing "run bootstrap.sh"; fi
+  done
+
+  if [ -z "$CONTAINERS" ]; then :
+  elif docker info >/dev/null 2>&1; then
+    add docker ok "context $(docker context show 2>/dev/null || echo "?"), $(($(docker info --format '{{.MemTotal}}') / 1024 / 1024))MB RAM"
+  else add docker missing "not running (colima start, or open your Docker app)"; fi
+
+  local name branch rest unhooked=""
+  while read -r name branch rest; do
+    if [ -d "$DEV_ROOT/$name/.git" ]; then
+      add "repo:$name" ok "$(git -C "$DEV_ROOT/$name" branch --show-current)"
+      [ "$(git -C "$DEV_ROOT/$name" config core.hooksPath)" = "$DEV_DIR/hooks" ] || unhooked="$unhooked $name"
+    else add "repo:$name" missing "run bootstrap.sh"; fi
+  done < <(repos)
+  if [ -z "$unhooked" ]; then add hooks ok "pre-commit hook active in every repo"
+  else add hooks missing "not active in:$unhooked — run bootstrap.sh"; fi
+
+  # Every KEY= in secrets.env.example; its trailing "# comment" says what breaks without it.
+  [ -f "$SECRETS_FILE" ] || add secrets missing "$SECRETS_FILE (run bootstrap.sh)"
+  local key why
+  while IFS='|' read -r key why; do
+    [ -n "$(secret "$key")" ] && add "secret:$key" ok "" || add "secret:$key" missing "$why"
+  done < <(sed -nE 's/^([A-Za-z_][A-Za-z0-9_]*)=[^#]*(# *(.*))?$/\1|\3/p' "$DEV_DIR/secrets.env.example")
+
+  local slots; slots=$(slot_holders)
+  add slots ok "${slots:-none in use}"
+
+  if [ "${JSON:-0}" = 1 ]; then echo "$checks"; else
+    jq -r '.[] | "\(if .status == "ok" then "✓" elif .status == "warn" then "!" else "✗" end) \(.name)  \(.detail)"' <<<"$checks"
+  fi
+}
+
+[ "${BASH_SOURCE[0]}" = "$0" ] || return 0  # sourced (tests/): functions only
+
+case "${1:-help}" in
+  up) shift; cmd_up "$@" ;;
+  down) cmd_down ;;
+  status) shift; cmd_status "$@" ;;
+  logs) shift; cmd_logs "$@" ;;
+  attach) load_running; pc attach ;;
+  seed) cmd_seed ;;
+  reset) shift; cmd_reset "$@" ;;
+  update) cmd_update; exit ;;  # exit before bash reads more of a file the update may have replaced
+  doctor) shift; cmd_doctor "$@" ;;
+  help|-h|--help) usage ;;
+  *) usage >&2; exit 2 ;;
+esac

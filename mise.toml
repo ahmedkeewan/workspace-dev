@@ -1,0 +1,9 @@
+# Pinned toolchain for every repo in the workspace. bootstrap.sh symlinks this to the
+# workspace dir so it applies to all sibling repos; a repo's own mise.toml /
+# .python-version / .nvmrc still wins inside that repo. Add your runtimes here.
+[tools]
+process-compose = "1"
+gitleaks = "8.30.1"  # used by hooks/pre-commit
+# python = "3.12"
+# node = "24"
+# pnpm = "10"
